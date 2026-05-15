@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ניהול עסק אחזקה</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, serverTimestamp, query, orderBy, updateDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBvkS6EE_wmBc8r1wMfYi-RNG_C4I_EaWU",
+  authDomain: "atomichabits-df13b.firebaseapp.com",
+  projectId: "atomichabits-df13b",
+  storageBucket: "atomichabits-df13b.firebasestorage.app",
+  messagingSenderId: "76966392649",
+  appId: "1:76966392649:web:6e1f4a21ca3c21900ca098"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+/* expose to global scope so non-module functions can use them */
+window._db = db;
+window._fbUpdate = updateDoc;
+window._fbFns = { collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, serverTimestamp, query, orderBy, updateDoc };
+
+/* ---- LIVE LISTENERS ---- */
+/* Invoices: listen to new entries added via the app */
+const invQ = query(collection(db, 'invoices'), orderBy('ts', 'desc'));
+onSnapshot(invQ, function(snap) {
+  window._fbInvoices = [];
+  snap.forEach(function(d) {
+    window._fbInvoices.push(Object.assign({fbId: d.id}, d.data()));
+  });
+  if (typeof window.refreshFbInvoices === 'function') window.refreshFbInvoices();
+});
+
+/* Tasks: live listener */
+const taskQ = query(collection(db, 'tasks'), orderBy('ts', 'asc'));
+onSnapshot(taskQ, function(snap) {
+  window._fbTasks = [];
+  snap.forEach(function(d) {
+    window._fbTasks.push(Object.assign({fbId: d.id}, d.data()));
+  });
+  if (typeof window.renderTasks === 'function') window.renderTasks();
+});
+</script>
+<style>
+:root{
+  --primary:#0F4C81;--pl:#1A6DB5;--pb:#E8F1FA;
+  --accent:#E84E0F;--success:#1B7A3E;--sb:#E6F4EC;
+  --warn:#B45309;--wb:#FEF3C7;--danger:#B91C1C;--db:#FEE2E2;
+  --g50:#F9FAFB;--g100:#F3F4F6;--g200:#E5E7EB;--g300:#D1D5DB;
+  --g500:#6B7280;--g700:#374151;--g900:#111827;
+  --sw:220px;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Heebo',sans-serif;background:#F0F4F9;color:var(--g900);min-height:100vh;display:flex}
+
+/* ---- LOGIN SCREEN ---- */
+.login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#0F4C81 0%,#1a2a4a 100%);display:flex;align-items:center;justify-content:center;z-index:9999}
+.login-overlay.hidden{display:none}
+.login-box{background:white;border-radius:18px;padding:44px 40px;width:380px;text-align:center;box-shadow:0 24px 60px rgba(0,0,0,0.35)}
+.login-logo{width:60px;height:60px;background:var(--accent);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:26px;color:white;margin:0 auto 18px}
+.login-title{font-size:22px;font-weight:900;color:var(--primary);margin-bottom:4px}
+.login-sub{font-size:13px;color:var(--g500);margin-bottom:28px}
+.login-field{margin-bottom:14px;text-align:right}
+.login-field label{display:block;font-size:12px;font-weight:700;color:var(--g700);margin-bottom:6px}
+.login-field input{width:100%;border:1.5px solid var(--g200);border-radius:9px;padding:11px 14px;font-family:'Heebo',sans-serif;font-size:14px;color:var(--g900);outline:none;transition:border-color .2s}
+.login-field input:focus{border-color:var(--primary)}
+.login-btn{width:100%;background:var(--primary);color:white;border:none;border-radius:9px;padding:13px;font-family:'Heebo',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;transition:background .2s}
+.login-btn:hover{background:var(--pl)}
+.login-err{color:var(--danger);font-size:13px;margin-top:10px;display:none}
+.login-err.show{display:block}
+.login-welcome{font-size:13px;color:var(--g500);margin-top:18px}
+
+/* ---- MAIN APP ---- */
+.sidebar{width:var(--sw);background:var(--primary);min-height:100vh;display:flex;flex-direction:column;position:fixed;right:0;top:0;bottom:0;z-index:100}
+.slogo{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.12)}
+.licon{width:40px;height:40px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center;margin-bottom:8px;font-size:18px;color:white}
+.ltitle{font-size:14px;font-weight:700;color:white}.lsub{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px}
+.snav{flex:1;padding:14px 0}
+.ni{display:flex;align-items:center;gap:11px;padding:11px 18px;color:rgba(255,255,255,.7);cursor:pointer;font-size:13px;font-weight:500;transition:all .2s;border-right:3px solid transparent;user-select:none}
+.ni:hover{background:rgba(255,255,255,.08);color:white}
+.ni.active{background:rgba(255,255,255,.15);color:white;border-right-color:var(--accent)}
+.ni i{width:18px;text-align:center;font-size:15px}
+.sfooter{padding:14px 18px;border-top:1px solid rgba(255,255,255,.12);font-size:11px;color:rgba(255,255,255,.4);display:flex;align-items:center;justify-content:space-between}
+.logout-btn{color:rgba(255,255,255,.5);cursor:pointer;font-size:11px;background:none;border:none;font-family:'Heebo',sans-serif}
+.logout-btn:hover{color:white}
+.main{margin-right:var(--sw);flex:1;display:flex;flex-direction:column}
+.topbar{background:white;padding:14px 28px;border-bottom:1px solid var(--g200);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.ttitle{font-size:19px;font-weight:700}.tdate{font-size:12px;color:var(--g500)}
+.tbadge{background:var(--pb);color:var(--primary);font-size:12px;font-weight:600;padding:4px 12px;border-radius:20px}
+.tuser{font-size:12px;color:var(--g500);display:flex;align-items:center;gap:6px}
+.tuser strong{color:var(--primary)}
+.pc{padding:22px 26px;flex:1}
+.tab{display:none}.tab.active{display:block}
+.card{background:white;border-radius:var(--r);box-shadow:0 1px 4px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06);padding:20px;margin-bottom:16px}
+.ctitle{font-size:14px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:9px}.ctitle i{color:var(--primary)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.sc{background:white;border-radius:var(--r);padding:15px 17px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-right:4px solid var(--primary)}
+.sc.green{border-right-color:var(--success)}.sc.red{border-right-color:var(--danger)}.sc.orange{border-right-color:var(--accent)}.sc.purple{border-right-color:#7C3AED}
+.sl{font-size:11px;color:var(--g500);font-weight:500;margin-bottom:4px}.sv{font-size:20px;font-weight:700}.ss{font-size:11px;color:var(--g500);margin-top:3px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-family:'Heebo',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .2s}
+.btn-p{background:var(--primary);color:white}.btn-p:hover{background:var(--pl)}
+.btn-o{background:white;color:var(--primary);border:1.5px solid var(--primary)}.btn-o:hover{background:var(--pb)}
+.btn-s{background:var(--success);color:white}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn-ai{background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-weight:700;padding:10px 20px;border-radius:9px;border:none;cursor:pointer;display:flex;align-items:center;gap:7px;box-shadow:0 4px 15px rgba(102,126,234,.3)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--g50);padding:9px 13px;text-align:right;font-weight:600;color:var(--g700);border-bottom:2px solid var(--g200);white-space:nowrap}
+td{padding:9px 13px;border-bottom:1px solid var(--g100);vertical-align:middle}
+tr:last-child td{border-bottom:none}tr:hover td{background:var(--g50)}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.bg{background:var(--sb);color:var(--success)}.bo{background:var(--wb);color:var(--warn)}
+.fg{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+.fgrp{display:flex;flex-direction:column;gap:4px;flex:1;min-width:120px}
+.fgrp label{font-size:11px;font-weight:600;color:var(--g700)}
+.fgrp input,.fgrp select{border:1.5px solid var(--g200);border-radius:7px;padding:8px 11px;font-family:'Heebo',sans-serif;font-size:13px;color:var(--g900);outline:none}
+.fgrp input:focus,.fgrp select:focus{border-color:var(--primary)}
+.ua{border:2px dashed var(--g300);border-radius:var(--r);padding:32px;text-align:center;cursor:pointer;background:var(--g50)}
+.ua:hover{border-color:var(--primary);background:var(--pb)}
+.ui{font-size:40px;color:var(--g300);margin-bottom:9px}.ua:hover .ui{color:var(--primary)}
+.ut{font-size:13px;font-weight:600;color:var(--g700);margin-bottom:3px}.us{font-size:12px;color:var(--g500)}
+.ar{background:#F0F4FF;border:1.5px solid #C7D2FE;border-radius:var(--r);padding:16px;margin-top:12px;display:none}
+.ar.show{display:block}.aex{background:white;border-radius:7px;padding:12px;border:1px solid #E0E7FF}
+.af{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--g100);font-size:12.5px}
+.af:last-child{border-bottom:none}.afl{color:var(--g500);font-weight:500}.afv{font-weight:600}
+.ld{display:none;align-items:center;gap:9px;padding:11px 16px;background:var(--g50);border-radius:var(--r);margin-top:9px;font-size:13px}
+.ld.show{display:flex}.sp{width:17px;height:17px;border:3px solid var(--g200);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ib{background:var(--pb);border:1px solid #BFDBFE;border-radius:var(--r);padding:13px 16px;margin-bottom:9px}
+.it{font-size:13px;font-weight:700;color:var(--primary);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.ix{font-size:13px;color:var(--g700);line-height:1.65}
+.br-row{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.bl{width:120px;font-size:12px;color:var(--g700);text-align:right;flex-shrink:0}
+.bt{flex:1;background:var(--g100);border-radius:4px;height:8px;overflow:hidden}
+.bf{height:100%;border-radius:4px}.ba{font-size:12px;font-weight:600;width:70px;text-align:left}
+.msel{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}
+.mtag{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--g200);background:white;color:var(--g700);transition:all .2s}
+.mtag:hover{border-color:var(--primary);color:var(--primary)}
+.mtag.active{background:var(--primary);color:white;border-color:var(--primary)}
+.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.st{font-size:16px;font-weight:700}.ss2{font-size:12px;color:var(--g500);margin-top:2px}
+.pp{display:none;text-align:center;margin-top:12px}.pp img{max-width:260px;max-height:160px;border-radius:7px;border:2px solid var(--primary)}
+.tk{background:white;border-radius:var(--r);box-shadow:0 1px 4px rgba(0,0,0,.08);padding:13px 16px;margin-bottom:9px;display:flex;align-items:flex-start;gap:11px;border-right:4px solid var(--g200)}
+.tk.urgent{border-right-color:var(--danger)}.tk.high{border-right-color:var(--accent)}.tk.normal{border-right-color:var(--primary)}.tk.low{border-right-color:var(--success)}
+.tn{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;color:white}
+.urgent .tn{background:var(--danger)}.high .tn{background:var(--accent)}.normal .tn{background:var(--primary)}.low .tn{background:var(--success)}
+.tinfo{flex:1}.ttk{font-size:13px;font-weight:700;margin-bottom:3px}.tm{font-size:12px;color:var(--g500)}
+.tip{font-size:11px;margin-top:5px;background:var(--pb);color:var(--primary);padding:5px 8px;border-radius:5px}
+.es{text-align:center;padding:44px 20px;color:var(--g500)}
+.es i{font-size:40px;color:var(--g300);margin-bottom:12px;display:block}
+.bank-btn{background:white;border:2px solid var(--g200);border-radius:var(--r);padding:18px;text-align:center;cursor:pointer}
+.bank-btn:hover{border-color:var(--primary);background:var(--pb)}
+.bank-logo{font-size:28px;margin-bottom:6px}.bank-name{font-size:14px;font-weight:700}.bank-sub{font-size:11px;color:var(--g500);margin-top:3px}
+
+/* month total banner */
+.month-total-bar{background:linear-gradient(135deg,#0F4C81,#1A6DB5);border-radius:var(--r);padding:14px 20px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;display:none}
+.month-total-bar.show{display:flex}
+.mtb-label{font-size:13px;color:rgba(255,255,255,.8);font-weight:500}
+.mtb-amount{font-size:26px;font-weight:900;color:white}
+.mtb-count{font-size:12px;color:rgba(255,255,255,.65);margin-top:2px}
+
+/* clinics map */
+.clinic-map-wrap{border-radius:var(--r);overflow:hidden;height:480px;border:1px solid var(--g200)}
+.ci{display:flex;align-items:flex-start;gap:11px;padding:11px 13px;border-bottom:1px solid var(--g100);cursor:pointer}
+.ci:hover{background:var(--g50)}.ci:last-child{border-bottom:none}
+.cico{width:34px;height:34px;border-radius:8px;background:var(--pb);color:var(--primary);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.cn{font-size:13px;font-weight:700}.ca{font-size:11px;color:var(--g500);margin-top:2px}.ch{font-size:11px;color:var(--success);margin-top:2px;font-weight:500}
+.clinic-search{width:100%;border:1.5px solid var(--g200);border-radius:7px;padding:8px 12px;font-family:'Heebo',sans-serif;font-size:13px;outline:none;margin-bottom:10px}
+.clinic-search:focus{border-color:var(--primary)}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN OVERLAY ===== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo"><i class="fas fa-tools"></i></div>
+    <div class="login-title">אחזקה מקצועית</div>
+    <div class="login-sub">שרון-שומרון &mdash; כניסה מאובטחת</div>
+    <div class="login-field">
+      <label>שם משתמש</label>
+      <input type="text" id="loginName" placeholder="הכנס שם..." autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>קוד כניסה</label>
+      <input type="password" id="loginCode" placeholder="הכנס קוד..." autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">כניסה למערכת</button>
+    <div class="login-err" id="loginErr">שם משתמש או קוד שגויים. נסה שנית.</div>
+    <div class="login-welcome">מערכת ניהול עסקית &copy; 2026</div>
+  </div>
+</div>
+
+<!-- ===== SIDEBAR ===== -->
+<aside class="sidebar">
+  <div class="slogo">
+    <div class="licon"><i class="fas fa-tools"></i></div>
+    <div class="ltitle">אחזקה מקצועית</div>
+    <div class="lsub">שרון-שומרון</div>
+  </div>
+  <nav class="snav">
+    <div class="ni active" id="nav-revenues" onclick="showTab('revenues')">
+      <i class="fas fa-file-invoice-dollar"></i><span>הכנסות</span>
+    </div>
+    <div class="ni" id="nav-expenses" onclick="showTab('expenses')">
+      <i class="fas fa-chart-pie"></i><span>הוצאות</span>
+    </div>
+    <div class="ni" id="nav-workplan" onclick="showTab('workplan')">
+      <i class="fas fa-clipboard-list"></i><span>תוכנית עבודה</span>
+    </div>
+    <div class="ni" id="nav-clinics" onclick="showTab('clinics')">
+      <i class="fas fa-hospital"></i><span>מרפאות</span>
+    </div>
+  </nav>
+  <div class="sfooter">
+    <span id="sideUser">v2.0</span>
+    <button class="logout-btn" onclick="doLogout()"><i class="fas fa-sign-out-alt"></i> יציאה</button>
+  </div>
+</aside>
+
+<!-- ===== MAIN ===== -->
+<main class="main">
+  <div class="topbar">
+    <div>
+      <div class="ttitle" id="pageTitle">&#128202; הכנסות</div>
+      <div class="tdate" id="pageDate"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div class="tuser">שלום, <strong id="topUser"></strong></div>
+      <div class="tbadge">מחוז שרון-שומרון</div>
+    </div>
+  </div>
+  <div class="pc">
+
+  <!-- REVENUES -->
+  <div class="tab active" id="tab-revenues">
+    <div class="g4">
+      <div class="sc green"><div class="sl">סה"כ הכנסות (אוג׳25-אפר׳26)</div><div class="sv">&#8362;940,678</div><div class="ss">9 חודשים פעילים</div></div>
+      <div class="sc"><div class="sl">ממוצע חודשי</div><div class="sv">&#8362;104,520</div><div class="ss">מהגיליון האמיתי</div></div>
+      <div class="sc orange"><div class="sl">חודש שיא</div><div class="sv">&#8362;145,340</div><div class="ss">דצמבר 2025</div></div>
+      <div class="sc purple"><div class="sl">חשבוניות</div><div class="sv">#1984 &ndash; #2335</div><div class="ss">כ-350 חשבוניות</div></div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-chart-bar"></i> הכנסות חודשיות &mdash; נתונים אמיתיים</div>
+      <div style="height:240px"><canvas id="revChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="sh">
+        <div><div class="st">פירוט חשבוניות לפי חודש</div><div class="ss2" id="monthSub">לחץ על חודש לפירוט</div></div>
+        <button class="btn btn-o btn-sm" onclick="exportCSV()"><i class="fas fa-download"></i> ייצוא</button>
+      </div>
+      <div class="msel" id="monthSel"></div>
+
+      <!-- MONTH TOTAL BANNER -->
+      <div class="month-total-bar" id="monthTotalBar">
+        <div>
+          <div class="mtb-label" id="mtbLabel">סה"כ חודשי</div>
+          <div class="mtb-count" id="mtbCount"></div>
+        </div>
+        <div class="mtb-amount" id="mtbAmount"></div>
+      </div>
+
+      <div class="tw"><table>
+        <thead><tr><th>תאריך</th><th>מרפאה</th><th>מבצע</th><th>חשבונית</th><th>תיאור עבודה</th><th>סכום</th></tr></thead>
+        <tbody id="invTable">
+          <tr><td colspan="6"><div class="es"><i class="fas fa-hand-pointer"></i><p>בחר חודש למעלה</p></div></td></tr>
+        </tbody>
+      </table></div>
+
+      <!-- Firebase new invoices -->
+      <div style="margin-top:16px;border-top:2px dashed var(--g200);padding-top:12px" id="fbInvoiceSection">
+        <div style="font-size:12px;font-weight:700;color:#7C3AED;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+          <i class="fas fa-database"></i> חשבוניות חדשות שנוספו למערכת (Firebase)
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>תאריך</th><th>מרפאה</th><th>מבצע</th><th>חשבונית</th><th>תיאור</th><th>סכום</th><th></th></tr></thead>
+          <tbody id="fbInvoiceRows"><tr><td colspan="7" style="text-align:center;color:var(--g500);font-size:12px;padding:12px">אין חשבוניות חדשות עדיין</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-camera"></i> הוספת חשבונית חדשה</div>
+      <div class="ua" onclick="document.getElementById('pi').click()">
+        <div class="ui"><i class="fas fa-camera"></i></div>
+        <div class="ut">צלם הזמנת עבודה &mdash; AI יזהה את הפרטים</div>
+        <div class="us">JPG, PNG &mdash; ניתן לצלם ישירות מהטלפון</div>
+      </div>
+      <input type="file" id="pi" accept="image/*" capture="environment" onchange="handlePhoto(this)" style="display:none">
+      <div class="pp" id="pp"><img id="pimg" src="" alt=""></div>
+      <div class="ld" id="aiLoad"><div class="sp"></div><span>מנתח...</span></div>
+      <div class="ar" id="aiRes">
+        <div style="font-size:12px;font-weight:700;color:#4338CA;margin-bottom:9px"><i class="fas fa-magic" style="margin-left:5px"></i>פרטים שחולצו</div>
+        <div class="aex" id="aiExt"></div>
+        <div style="display:flex;gap:7px;margin-top:10px">
+          <button class="btn btn-s btn-sm" onclick="confirmAI()"><i class="fas fa-check"></i> אשר</button>
+          <button class="btn btn-o btn-sm" onclick="cancelAI()"><i class="fas fa-times"></i> בטל</button>
+        </div>
+      </div>
+      <div style="margin-top:16px;border-top:1px solid var(--g200);padding-top:13px">
+        <div style="font-size:12px;font-weight:700;color:var(--g700);margin-bottom:9px"><i class="fas fa-keyboard" style="color:var(--primary);margin-left:6px"></i>הזנה ידנית</div>
+        <div class="fg">
+          <div class="fgrp"><label>מרפאה</label><input type="text" id="mc" placeholder="שם המרפאה"></div>
+          <div class="fgrp"><label>מבצע</label><input type="text" id="mb" placeholder="שם מבצע"></div>
+          <div class="fgrp"><label>תיאור עבודה</label><input type="text" id="mw" placeholder="מה בוצע"></div>
+        </div>
+        <div class="fg">
+          <div class="fgrp"><label>סכום (ש"ח)</label><input type="number" id="ma" placeholder="0"></div>
+          <div class="fgrp"><label>תאריך</label><input type="date" id="md"></div>
+          <div class="fgrp"><label>מס' חשבונית</label><input type="text" id="mi" placeholder="2336..."></div>
+          <button class="btn btn-p" onclick="addManual()" style="align-self:flex-end"><i class="fas fa-plus"></i> הוסף</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXPENSES -->
+  <div class="tab" id="tab-expenses">
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-university"></i> כניסה לחשבון הבנק</div>
+      <p style="font-size:12px;color:var(--g500);margin-bottom:14px">לחץ על הבנק לכניסה ישירה לאזור האישי</p>
+      <div class="g3" style="margin-bottom:0">
+        <div class="bank-btn" onclick="window.open('https://www.mizrahi-tefahot.co.il/he/private/digital-banking/','_blank')">
+          <div class="bank-logo">&#127968;</div><div class="bank-name">מזרחי-טפחות</div><div class="bank-sub">כניסה לחשבון עסקי</div>
+        </div>
+        <div class="bank-btn" onclick="window.open('https://www.bankhapoalim.co.il/he/private/online-banking/','_blank')">
+          <div class="bank-logo">&#127968;</div><div class="bank-name">בנק הפועלים</div><div class="bank-sub">כניסה לחשבון עסקי</div>
+        </div>
+        <div class="bank-btn" onclick="window.open('https://www.leumi.co.il/he/private/private-banking/','_blank')">
+          <div class="bank-logo">&#127968;</div><div class="bank-name">בנק לאומי</div><div class="bank-sub">כניסה לחשבון עסקי</div>
+        </div>
+      </div>
+    </div>
+    <div class="g4">
+      <div class="sc"><div class="sl">הכנסה ממוצעת (מהגיליון)</div><div class="sv">&#8362;104,520</div><div class="ss">9 חודשים</div></div>
+      <div class="sc red"><div class="sl">הוצאות קבועות חודשיות</div><div class="sv">&#8362;8,120</div><div class="ss">כ-7.8% מההכנסה</div></div>
+      <div class="sc orange"><div class="sl">הוצאות משתנות</div><div class="sv">&#8362;6,840</div><div class="ss">כ-6.5% מההכנסה</div></div>
+      <div class="sc green"><div class="sl">יתרה לפני הוצ' עסקיות</div><div class="sv">&#8362;89,560</div><div class="ss">כ-85.7% מההכנסה</div></div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-chart-line"></i> הכנסות לפי חודש</div>
+      <div style="height:230px"><canvas id="expChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-table"></i> ניתוח חודשי &mdash; הכנסות מול הוצאות קבועות</div>
+      <div class="tw"><table>
+        <thead><tr><th>חודש</th><th>הכנסות</th><th>הלוואות</th><th>ביטוח</th><th>תקשורת</th><th>סה"כ קבועות</th><th>אחוז</th><th>יתרה</th></tr></thead>
+        <tbody id="expTable"></tbody>
+      </table></div>
+    </div>
+    <div class="g2">
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-lock"></i> הוצאות קבועות (חודשי)</div>
+        <div class="br-row"><div class="bl">הלוואות</div><div class="bt"><div class="bf" style="width:62%;background:#1A6DB5"></div></div><div class="ba">&#8362;5,040</div></div>
+        <div class="br-row"><div class="bl">ביטוח רכב</div><div class="bt"><div class="bf" style="width:20%;background:#E84E0F"></div></div><div class="ba">&#8362;1,620</div></div>
+        <div class="br-row"><div class="bl">תקשורת</div><div class="bt"><div class="bf" style="width:11%;background:#1B7A3E"></div></div><div class="ba">&#8362;860</div></div>
+        <div class="br-row"><div class="bl">ביטוח אחר</div><div class="bt"><div class="bf" style="width:7%;background:#B45309"></div></div><div class="ba">&#8362;600</div></div>
+        <div style="font-size:11px;color:var(--g500);text-align:center;margin-top:9px;padding-top:9px;border-top:1px solid var(--g100)">מניתוח חשבון הבנק</div>
+      </div>
+      <div class="card">
+        <div class="ctitle"><i class="fas fa-lightbulb"></i> המלצות עסקיות</div>
+        <div class="ib"><div class="it"><i class="fas fa-arrow-trend-up"></i>מגמת צמיחה חזקה</div><div class="ix">ההכנסות גדלו 59% מספטמבר לדצמבר. דצמבר ואפריל הם חודשי השיא.</div></div>
+        <div class="ib" style="background:var(--wb);border-color:#FCD34D"><div class="it" style="color:var(--warn)"><i class="fas fa-exclamation-triangle"></i>פברואר &mdash; חודש חלש</div><div class="ix">פברואר ירד ל-62,717 ש"ח. כדאי לשמור עבודות גדולות לחודש זה.</div></div>
+        <div class="ib" style="background:var(--sb);border-color:#86EFAC"><div class="it" style="color:var(--success)"><i class="fas fa-check-circle"></i>הוצאות קבועות נמוכות</div><div class="ix">רק 7.8% מהכנסה &mdash; יחס מצוין לעסק.</div></div>
+        <div class="ib" style="background:#FFF5FF;border-color:#E9D5FF"><div class="it" style="color:#7C3AED"><i class="fas fa-star"></i>לקוחות מרכזיים</div><div class="ix">דגני חדרה, יועצת הרצליה ואבן יהודה &mdash; כ-30% מההכנסה.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKPLAN -->
+  <div class="tab" id="tab-workplan">
+    <div class="card">
+      <div class="ctitle"><i class="fas fa-plus-circle"></i> הוסף קריאה פתוחה</div>
+      <div class="fg">
+        <div class="fgrp" style="flex:2"><label>תיאור</label><input type="text" id="td" placeholder="תיאור הבעיה"></div>
+        <div class="fgrp"><label>מרפאה</label><input type="text" id="tl" placeholder="שם המרפאה"></div>
+        <div class="fgrp"><label>דחיפות</label>
+          <select id="tu">
+            <option value="urgent">דחוף</option>
+            <option value="high">גבוה</option>
+            <option value="normal" selected>רגיל</option>
+            <option value="low">נמוך</option>
+          </select>
+        </div>
+        <button class="btn btn-p" onclick="addTask()" style="align-self:flex-end"><i class="fas fa-plus"></i> הוסף</button>
+      </div>
+    </div>
+    <div class="sh">
+      <div><div class="st">קריאות פתוחות</div><div class="ss2" id="taskCount">0 קריאות</div></div>
+      <button class="btn-ai" onclick="aiOrganize()"><i class="fas fa-brain"></i> סדר לפי AI</button>
+    </div>
+    <div class="ld" id="taskLoad"><div class="sp"></div><span>AI מסדר...</span></div>
+    <div id="taskList"><div class="es"><i class="fas fa-clipboard-list"></i><p>הוסף קריאה ראשונה</p></div></div>
+  </div>
+
+  <!-- CLINICS -->
+  <div class="tab" id="tab-clinics">
+    <div class="g2">
+      <div>
+        <div class="card" style="margin-bottom:13px;padding:16px">
+          <div class="ctitle" style="margin-bottom:8px"><i class="fas fa-search"></i> חיפוש מרפאה</div>
+          <input class="clinic-search" id="clinicSearch" type="text" placeholder="חפש לפי שם מרפאה או עיר..." oninput="filterClinics()">
+          <div style="font-size:11px;color:var(--g500)" id="clinicCountLabel"></div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <div style="max-height:500px;overflow-y:auto" id="clinicList"></div>
+        </div>
+      </div>
+      <div class="card" style="padding:11px">
+        <div class="clinic-map-wrap" id="mapWrap">
+          <iframe id="clinicMapFrame" style="border:0;width:100%;height:100%" loading="lazy" allowfullscreen src="about:blank"></iframe>
+        </div>
+        <div style="margin-top:9px;text-align:center">
+          <a href="https://www.clalit.co.il/he/sefersherut/Pages/clinicSearch.aspx" target="_blank" style="font-size:12px;color:var(--primary);text-decoration:none">
+            <i class="fas fa-external-link-alt"></i> חיפוש מרפאות באתר כללית
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
+</main>
+
+<script>
+/* ===== USERS ===== */
+var USERS = {
+  'yuval2104': {name: 'יובל גיאת', display: 'יובל'},
+  'yehuda53':  {name: 'יהודה גיאת', display: 'יהודה'}
+};
+var currentUser = null;
+
+function doLogin() {
+  var nameInput = document.getElementById('loginName').value.trim();
+  var codeInput = document.getElementById('loginCode').value.trim();
+  var err = document.getElementById('loginErr');
+  err.classList.remove('show');
+  if (!nameInput || !codeInput) { err.textContent = 'נא למלא שם וקוד.'; err.classList.add('show'); return; }
+  var user = USERS[codeInput];
+  if (!user) { err.textContent = 'שם משתמש או קוד שגויים. נסה שנית.'; err.classList.add('show'); return; }
+  currentUser = user;
+  document.getElementById('loginOverlay').classList.add('hidden');
+  document.getElementById('topUser').textContent = user.display;
+  document.getElementById('sideUser').textContent = user.display;
+  initApp();
+}
+
+function doLogout() {
+  currentUser = null;
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('loginName').value = '';
+  document.getElementById('loginCode').value = '';
+  document.getElementById('loginErr').classList.remove('show');
+}
+
+/* ===== DATA ===== */
+var MONTHS = ['אוג 25','ספט 25','אוק 25','נוב 25','דצמ 25','ינו 26','פבר 26','מרץ 26','אפר 26'];
+var TOTALS = [107977,91330,94910,121130,145340,100100,62717,92490,124684];
+var MD = {};
+
+MD['אוג 25'] = {total:107977,inv:[
+  {d:'1.8',c:'',p:'',n:'',w:'חשבוניות שונות',a:6550},
+  {d:'4.8',c:'',p:'',n:'',w:'',a:1950},{d:'5.8',c:'',p:'',n:'',w:'',a:18850},
+  {d:'6.8',c:'',p:'',n:'',w:'',a:10487},{d:'7.8',c:'',p:'',n:'',w:'',a:7350},
+  {d:'10.8',c:'',p:'',n:'',w:'',a:9150},{d:'11.8',c:'',p:'',n:'',w:'',a:12640},
+  {d:'12.8',c:'',p:'',n:'',w:'',a:8200},{d:'14.8',c:'',p:'',n:'',w:'',a:7700},
+  {d:'18.8',c:'',p:'',n:'',w:'',a:11100},{d:'19.8',c:'',p:'',n:'',w:'',a:4400},
+  {d:'20.8',c:'',p:'',n:'',w:'',a:6100},{d:'21.8',c:'',p:'',n:'',w:'',a:750},
+  {d:'24.8',c:'',p:'',n:'',w:'',a:2750}
+]};
+MD['ספט 25'] = {total:91330,inv:[
+  {d:'1.9',c:'גסר א-זרקא',p:'יהודה ואסף',n:'1984',w:'ייצור, צביעה והתקנת מאחז יד',a:2850},
+  {d:'1.9',c:'גסר א-זרקא',p:'יהודה ואסף',n:'1985',w:'פירוק זכוכית בדלת כניסה - פרספקס 6מ"מ',a:2500},
+  {d:'1.9',c:'קדם',p:'יהודה ואסף',n:'1986',w:'ניסור בטון, גלגלים, קיבוע מסך',a:2630},
+  {d:'1.9',c:'פיזיו פרדס חנה',p:'יהודה ואסף',n:'1987',w:'החלפת גלגלים פגומים בשולחנות מחשב',a:2850},
+  {d:'1.9',c:'דגני חדרה',p:'יהודה ואסף',n:'1988',w:'מעקות 6 צול למעבר נגישות',a:4250},
+  {d:'1.9',c:'כפר קרע ילדים',p:'יהודה ואסף',n:'1989',w:'פריצת דלת מנעול תקול, החלפת מנעול',a:1950},
+  {d:'1.9',c:'אום אל פחם',p:'יהודה ואסף',n:'1990',w:'תיקון דלת כניסה ידית בהלה',a:2450},
+  {d:'2.9',c:'אולגה',p:'יהודה ואסף',n:'1991',w:'תיקון דלת כניסה מערבית',a:1950},
+  {d:'2.9',c:'אבן יהודה',p:'יהודה ואסף',n:'1992',w:'תיקון וקיבוע עמוד אזהרה גמיש',a:1350},
+  {d:'2.9',c:'אבן יהודה',p:'יהודה ואסף',n:'1993',w:'אספקה והתקנת מעצור לדלת כבדה',a:1850},
+  {d:'3.9',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואסף',n:'1996',w:'אספקת והתקנת וילונות PVC 70מ"א',a:2950},
+  {d:'3.9',c:'ערערה',p:'יהודה ואסף',n:'1997',w:'תיקון דלת כניסה נעולה',a:1950},
+  {d:'4.9',c:'בילו 9 הרצליה',p:'יהודה ואסף',n:'1998',w:'פירוק מעקה ושער כניסה לבית מרקחת',a:750},
+  {d:'4.9',c:'בילו 9 הרצליה',p:'יהודה ואסף',n:'1999',w:'ייצור סורג דקורטיבי למזגן',a:2650},
+  {d:'4.9',c:'מחסן לוגיסטי',p:'יהודה ואסף',n:'2000',w:'אספקת 3 מחיצות מפנל מבודד',a:6500},
+  {d:'8.9',c:'קדם',p:'יהודה ואסף',n:'2002',w:'התקנת מיטת טיפולים ענק בקיר',a:1450},
+  {d:'9.9',c:'צור יצחק',p:'יהודה ואסף',n:'2003',w:'החלפת מעצור לדלת + סולם מעץ',a:2500},
+  {d:'10.9',c:'נווה מרחב',p:'יהודה ואסף',n:'2005',w:'תיקון ידית בהלה בדלת כניסה',a:2450},
+  {d:'10.9',c:'זכרון הפסגה',p:'יהודה ואסף',n:'2006',w:'אספקת והתקנת רמפה בכניסה',a:1850},
+  {d:'15.9',c:'קדם',p:'יהודה ואסף',n:'2009',w:'שיפוץ מיטה ענקית + בניית ספסל',a:2450},
+  {d:'17.9',c:'אלדהר אום אלפחם',p:'יהודה ואסף',n:'2010',w:'התקנת גדר רשת 27מ"ר',a:3950},
+  {d:'21.9',c:'קדם',p:'יהודה ואיציק',n:'2011',w:'ייצור מתקן למשקולות וציוד פיזיותרפיה',a:3500},
+  {d:'21.9',c:'כפר סבא הירוקה',p:'יהודה ואיציק',n:'2012',w:'תיקון דלת יציאה בית מרקחת',a:2250},
+  {d:'25.9',c:'אור ים',p:'יהודה ואיציק',n:'2014',w:'סידור מתלה למזרונים',a:1950},
+  {d:'25.9',c:'בילו הרצליה',p:'יהודה ואיציק',n:'2015',w:'החלפת צילינדר אחרי פריצה בערב החג',a:3500},
+  {d:'28.9',c:'זכרון יעקב דרום',p:'יהודה ואסף',n:'2017',w:'ייצור, צביעה, התקנת מעקה תקני 17מ"א',a:12050}
+]};
+MD['אוק 25'] = {total:94910,inv:[
+  {d:'20.10',c:'פרדס חנה',p:'יהודה',n:'2018',w:'תיקון אסלת שירותים',a:1250},
+  {d:'21.10',c:'טירה חדשה',p:'יהודה ואסף',n:'2019',w:'התקנת שידת החתלה בקיר גבס',a:2250},
+  {d:'21.10',c:'צור יגאל',p:'יהודה ואסף',n:'2020',w:'תיקון חלון דרייקיפ בפרוזדור',a:1850},
+  {d:'21.10',c:'קדמה',p:'יהודה ואסף',n:'2021',w:'נעילת שער פנימי + החלפת בריח',a:1450},
+  {d:'23.10',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואסף',n:'2022',w:'גגון 6מ"א + וילונות PVC',a:10850},
+  {d:'23.10',c:'נשים נעימי',p:'יהודה ואסף',n:'2023',w:'קיבוע תקני 3 אולטראסאונד',a:5100},
+  {d:'23.10',c:'נשים נעימי',p:'יהודה ואסף',n:'2024',w:'קיבוע תקני כספת',a:2250},
+  {d:'24.10',c:'נשים נעימי',p:'יהודה ואסף',n:'2025',w:'מערכות קיבוע אולטראסאונד 11 חדרים',a:13600},
+  {d:'24.10',c:'נורדאו נתניה',p:'יהודה',n:'2046',w:'תיקון נעילת כספת גדולה',a:2350},
+  {d:'24.10',c:'טייבה ילדים',p:'יהודה ואפיק',n:'2047',w:'תיקון דלת כניסה קומה שנייה',a:2850},
+  {d:'28.10',c:'הנביאים נתניה',p:'יהודה ואסף',n:'2048',w:'פירוק + התקנת כספת חדשה',a:2500},
+  {d:'31.10',c:'אור עקיבא',p:'יהודה ואסף',n:'2049',w:'עבודת ניקוי גזם + מחפרון + פינוי',a:8900},
+  {d:'31.10',c:'מרכז בריאות הילד חדרה',p:'אסף',n:'2050',w:'תיקון מעצור דלת בית מרקחת',a:1950},
+  {d:'31.10',c:'אור עקיבא',p:'יהודה, אסף, חיים ואפיק',n:'2051',w:'גדר היקפית 2מ x 32מ"א',a:37760}
+]};
+MD['נוב 25'] = {total:121130,inv:[
+  {d:'2.11',c:'אור עקיבא',p:'מתן כהן',n:'2052',w:'מחפרון לעקירת צמחיה',a:1800},
+  {d:'3.11',c:'אזורית חדרה',p:'אסף',n:'2053',w:'תיקון וריתוך שער עובדים',a:2800},
+  {d:'3.11',c:'בקה אלגרביה',p:'יהודה ואסף',n:'2054',w:'תיקון דלת פלדה שיצאה מהצירים',a:2350},
+  {d:'3.11',c:'הנדיב הרצליה',p:'אסף',n:'2055',w:'התקנת מעצור לדלת כבדה',a:1450},
+  {d:'3.11',c:'קדימה',p:'יהודה ואסף',n:'2057',w:'פירוק מעקה פסול + ייצור תקני 10מ"א',a:9000},
+  {d:'4.11',c:'דגני חדרה',p:'יהודה ואסף',n:'2058',w:'תיקון שער חשמלי בכניסה לחניון',a:2950},
+  {d:'4.11',c:'נורדאו חדרה',p:'יהודה ואסף',n:'2059',w:'תיקון שער כניסה עם עמוד בטון',a:6850},
+  {d:'5.11',c:'בילו הרצליה',p:'אסף',n:'2060',w:'החלפת מנגנון פתיחה חלון אלומיניום',a:2850},
+  {d:'6.11',c:'דגני חדרה',p:'תומר הינדי',n:'2067',w:'ריפוד 21 כסאות בורדו',a:2100},
+  {d:'11.11',c:'הגליל כפר סבא',p:'יהודה ואסף',n:'2071',w:'פריצת דלת פלדלת + החלפת מנגנון',a:2850},
+  {d:'16.11',c:'מוריה רמת השרון',p:'יהודה ואסף',n:'2079',w:'תיקון דלת מקלט ליד טיפת חלב',a:1950},
+  {d:'18.11',c:'שועלי רעננה',p:'יהודה ואסף',n:'2088',w:'נטרול נעילת דלת אש + החלפת מנעול',a:2950},
+  {d:'18.11',c:'אור עקיבא',p:'יהודה ואסף',n:'2093',w:'גדר 2מ x 23מ"א',a:27140}
+]};
+MD['דצמ 25'] = {total:145340,inv:[
+  {d:'1.12',c:'קדם שיקום',p:'יהודה ואסף',n:'2095',w:'ייצור 4 מאחזי יד למיטות טיפול',a:2650},
+  {d:'4.12',c:'דרך ארץ חריש',p:'יהודה ואסף',n:'2134',w:'עבודה בגובה 8מ - פרופילים לתקרה',a:6500},
+  {d:'7.12',c:'טירה צפון',p:'יהודה ואסף',n:'2135',w:'ייצור עגלה לאחסנת מזרונים',a:2800},
+  {d:'9.12',c:'בנימינה',p:'יהודה ואסף',n:'2147',w:'ייצור סורגים 175x100 (6 יחידות)',a:7150},
+  {d:'10.12',c:'דגני חדרה',p:'יהודה ואסף',n:'2152',w:'מגשים עם ניקוז לגשם קומה 5',a:5550},
+  {d:'14.12',c:'דגני חדרה',p:'יהודה ואסף',n:'2155',w:'4 מעצורים לדלת כבדה',a:3800},
+  {d:'16.12',c:'הגליל כפר סבא',p:'יהודה ואסף',n:'2159',w:'גגון מעל דלת יציאה קומה 2',a:2850},
+  {d:'17.12',c:'טייבה מרכז',p:'יהודה ואסף',n:'2162',w:'מסעדי נכים בשירותים',a:2950},
+  {d:'25.12',c:'אזורית חדרה',p:'יהודה ואסף',n:'2173',w:'מכסה פח לפתחי איוורור',a:2380},
+  {d:'30.12',c:'בילו 9 הרצליה',p:'יהודה ואסף',n:'2181',w:'דלתות סורג בכניסה 4 יחידות',a:7950}
+]};
+MD['ינו 26'] = {total:100100,inv:[
+  {d:'1.1',c:'דגני חדרה',p:'יהודה ואסף',n:'2182',w:'סידור 2 חלונות לנעילה תקינה',a:1850},
+  {d:'1.1',c:'דגני חדרה',p:'יהודה ואסף',n:'2183',w:'חלון דרייקיפ - סידור נעילה',a:1950},
+  {d:'2.1',c:'טייבה צפון',p:'יהודה ואסף',n:'2186',w:'ייצור 14מ"א מעקה תקני',a:15500},
+  {d:'4.1',c:'דגני מרתף חניון',p:'יהודה ואסף',n:'2188',w:'מגש וצינור לניקוז מי גשם',a:1950},
+  {d:'5.1',c:'גוטפריד הרצליה',p:'יהודה ואסף',n:'2191',w:'גגון 100x150 ביציאה לגג',a:3250},
+  {d:'6.1',c:'נעימי חדרה',p:'יהודה ואסף',n:'2195',w:'מתקני כדורים ומזרונים לאולם',a:6300},
+  {d:'7.1',c:'פרדס חנה כרכור',p:'יהודה ואסף',n:'2197',w:'סידור 8 דלתות אלומיניום',a:2750},
+  {d:'12.1',c:'אל דהאר אום אל פחם',p:'יהודה ואסף',n:'2199',w:'פריצת מנעול + החלפת צילינדר',a:2350},
+  {d:'18.1',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואסף',n:'2205',w:'מיגון פח מרוג - הגנה ממלגזה',a:3550},
+  {d:'19.1',c:'דגני חדרה',p:'יהודה ואסף',n:'2207',w:'תיקון שער חשמלי לחניון רכב',a:3480},
+  {d:'26.1',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואסף',n:'2209',w:'הגבהת מעקה בגלריה 23מ"א',a:5750},
+  {d:'28.1',c:'הנביאים נתניה',p:'יהודה ואסף',n:'2214',w:'ייצור שער סורג דו-כנפי',a:9500}
+]};
+MD['פבר 26'] = {total:62717,inv:[
+  {d:'4.2',c:'טייבה צפון',p:'יהודה',n:'2215',w:'משטח בטיחות + פסי נגישות',a:1950},
+  {d:'4.2',c:'טייבה מרכז',p:'יהודה ואסף',n:'2216',w:'הארכת מעבה + סיומות, צביעה',a:2500},
+  {d:'9.2',c:'טייבה צפון',p:'יהודה ועפיף',n:'2217',w:'מעקה ירידה למדרגות 26מ"א',a:11917},
+  {d:'11.2',c:'לנדיאו נתניה',p:'יהודה',n:'2218',w:'עיגון תיקני אולטרסאונד + שרשרת',a:2450},
+  {d:'11.2',c:'דגני חדרה',p:'חיים',n:'2220',w:'הלחמת מאחז יד נירוסטה',a:2250},
+  {d:'18.2',c:'הנוטרים רעננה',p:'יהודה',n:'2221',w:'סידור דלת יציאה אחורית',a:2350},
+  {d:'18.2',c:'גליל ים הרצליה',p:'יהודה',n:'2222',w:'החלפת מחזיר שמן בדלת כניסה',a:2650},
+  {d:'24.2',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואיציק',n:'2228',w:'מילואות מעקות 24מ PVC',a:9360},
+  {d:'24.2',c:'מוריה רמת השרון',p:'יהודה',n:'2229',w:'סידור דלת בית מרקחת',a:2250},
+  {d:'25.2',c:'שועלי רעננה',p:'יהודה ואיציק',n:'2231',w:'פריצת דלת לגג + מנעול',a:2250},
+  {d:'25.2',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואיציק',n:'2232',w:'לוחות PVC דפנות מדפים',a:5300},
+  {d:'25.2',c:'שועלי טיפת חלב',p:'יהודה ואיציק',n:'2233',w:'תיקון דלת + ידית בהלה',a:4020},
+  {d:'26.2',c:'נורדאו חדרה',p:'יהודה ואיציק',n:'2234',w:'החלפת צילינדר דלת פלדלת',a:2150},
+  {d:'26.2',c:'אבן יהודה',p:'יהודה ואיציק',n:'2235',w:'הרכבת שלט מניעת חניה',a:1850}
+]};
+MD['מרץ 26'] = {total:92490,inv:[
+  {d:'1.3',c:'קדם',p:'יהודה',n:'2251',w:'סידור דלת מקלט',a:2350},
+  {d:'1.3',c:'הגליל',p:'יהודה',n:'2252',w:'תיקון סגירת מקלט קומה -1',a:2350},
+  {d:'4.3',c:'נורדאו חדרה',p:'יהודה',n:'2254',w:'תיקון עמודי מעקה חלודים',a:2500},
+  {d:'5.3',c:'נורדאו חדרה',p:'יהודה ואיציק',n:'2255',w:'ליטוש וצביעה מחדש מעקות',a:3450},
+  {d:'9.3',c:'דגני פיזיותרפיה',p:'יהודה ואיציק',n:'2257',w:'תיקון חלון דרייקיפ',a:2250},
+  {d:'9.3',c:'דגני',p:'יהודה ואיציק',n:'2259',w:'תיקון חלון דרייקיפ חדר 203',a:2450},
+  {d:'10.3',c:'מורייה רמת השרון',p:'יהודה ואיציק',n:'2263',w:'תיקון 2 דלתות ממד',a:2950},
+  {d:'10.3',c:'קפלן',p:'יהודה ואיציק',n:'2265',w:'פחים מיגון דלת ממד',a:2900},
+  {d:'16.3',c:'דגני',p:'יהודה',n:'2272',w:'תיקון דלת ממד',a:2350},
+  {d:'17.3',c:'הנביאים נתניה',p:'יהודה ואיציק',n:'2278',w:'פלטה 8מ"מ מיגון פתח ממד',a:2950},
+  {d:'18.3',c:'התפתחות הילד נווה זמיר',p:'יהודה ואופק',n:'2280',w:'החלפת ידית + סל מפתחות',a:2650},
+  {d:'26.3',c:'בית קורן חדרה',p:'משה בוחבוט',n:'2286',w:'2 צילינדרים + סד מפתחות',a:2950},
+  {d:'26.3',c:'מחסן לוגיסטי אבן יהודה',p:'יהודה ואופק',n:'2290',w:'דופן PVC אקרילי 21מ"ר',a:7350}
+]};
+MD['אפר 26'] = {total:124684,inv:[
+  {d:'31.3',c:'טירה מרכז',p:'יהודה',n:'2294',w:'תיקון דלת מקלט כבדה',a:2450},
+  {d:'1.4',c:'מרפאת אלצאבר',p:'יהודה',n:'2295',w:'תיקון סף דלת בית מרקחת',a:2750},
+  {d:'9.4',c:'נורדאו חדרה',p:'יהודה, איציק וחיים',n:'2301',w:'ייצור מעקות + פירוק פינוי',a:13344},
+  {d:'10.4',c:'גבעת אולגה חדרה',p:'אסמעיל',n:'2302',w:'סולם עלייה לגג תקני 5מ',a:9500},
+  {d:'13.4',c:'קלנסוואה חדשה',p:'יהודה, איציק וחיים',n:'2303',w:'קיבוע תקני לכספת',a:2250},
+  {d:'16.4',c:'כפר נטר',p:'יהודה, איציק וחיים',n:'2314',w:'ריתוכים + צביעת 38מ מעקות',a:6900},
+  {d:'19.4',c:'קלנסוואה החדשה',p:'איציק',n:'2317',w:'קיבוע אולטרה סאונד + שרשרת',a:2550},
+  {d:'23.4',c:'שועלי רעננה',p:'משה בוחבוט',n:'2327',w:'מנעול חכמי + צילינדר',a:2950},
+  {d:'27.4',c:'פיזיו חריש',p:'יהודה ואיציק',n:'2328',w:'סידור דלת כניסה + 2 זוגות צירים',a:2650},
+  {d:'28.4',c:'גסר א-זקקא',p:'איציק וחיים',n:'2334',w:'רמפה + מעקות + שער בית מרקחת',a:9500},
+  {d:'28.4',c:'גסר א-זקקא',p:'יהודה, איציק וחיים',n:'2335',w:'ייצור גדר גובה 1מ x 26מ',a:8840}
+]};
+
+/* All clinics from invoices with coords */
+var ALL_CLINICS = [
+  {name:'דגני חדרה',addr:'שד רוטשילד 65, חדרה',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.4357,lng:34.9190},
+  {name:'יועצת הרצליה',addr:'שד בן גוריון 12, הרצליה',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.1624,lng:34.8440},
+  {name:'בילו 9 הרצליה',addr:'שד בילו 9, הרצליה',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.1580,lng:34.8460},
+  {name:'נוה עמל הרצליה',addr:'הרצליה',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.1640,lng:34.8380},
+  {name:'הנדיב הרצליה',addr:'הרצליה',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.1600,lng:34.8420},
+  {name:'גוטפריד הרצליה',addr:'הרצליה',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.1612,lng:34.8432},
+  {name:'גליל ים הרצליה',addr:'גליל ים, הרצליה',hours:'א-ה 08:00-18:00',lat:32.1790,lng:34.8300},
+  {name:'נוף הרצליה',addr:'הרצליה',hours:'א-ה 08:00-18:00',lat:32.1560,lng:34.8500},
+  {name:'נורדאו נתניה',addr:'שד נורדאו, נתניה',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.3295,lng:34.8567},
+  {name:'הנביאים נתניה',addr:'רחוב הנביאים, נתניה',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.3320,lng:34.8550},
+  {name:'רזיאל נתניה',addr:'רחוב רזיאל, נתניה',hours:'א-ה 08:00-18:00',lat:32.3278,lng:34.8580},
+  {name:'לנדיאו נתניה',addr:'נתניה',hours:'א-ה 08:00-18:00',lat:32.3300,lng:34.8520},
+  {name:'יועצת נתניה',addr:'נתניה',hours:'א-ה 08:00-18:00',lat:32.3260,lng:34.8560},
+  {name:'מרפאת אלצאבר',addr:'נתניה',hours:'א-ה 08:00-17:00',lat:32.3240,lng:34.8600},
+  {name:'מחסן לוגיסטי אבן יהודה',addr:'אבן יהודה, אזור תעשייה',hours:'א-ה 07:00-16:00',lat:32.2590,lng:34.8920},
+  {name:'אבן יהודה',addr:'אבן יהודה',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.2560,lng:34.8890},
+  {name:'קדם',addr:'נתניה',hours:'א-ה 08:00-18:00',lat:32.3180,lng:34.8620},
+  {name:'קדם שיקום ופיזיותרפיה',addr:'נתניה',hours:'א-ה 08:00-18:00',lat:32.3160,lng:34.8640},
+  {name:'נשים נעימי',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4380,lng:34.9160},
+  {name:'נעימי חדרה',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4360,lng:34.9140},
+  {name:'אזורית חדרה',addr:'חדרה',hours:'א-ה 08:00-18:30',lat:32.4340,lng:34.9200},
+  {name:'בית קורן חדרה',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4320,lng:34.9220},
+  {name:'מרכז בריאות הילד חדרה',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4350,lng:34.9180},
+  {name:'נורדאו חדרה',addr:'שד נורדאו, חדרה',hours:'א-ה 08:00-18:30',lat:32.4330,lng:34.9175},
+  {name:'דגני פיזיותרפיה',addr:'חדרה',hours:'א-ה 08:00-18:00',lat:32.4355,lng:34.9185},
+  {name:'ילדים חדרה',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4342,lng:34.9195},
+  {name:'נווה מרחב פרדס חנה',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:30',lat:32.4700,lng:34.9690},
+  {name:'פרדס חנה מרכז',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:30',lat:32.4720,lng:34.9700},
+  {name:'פרדס חנה כרכור',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:30',lat:32.4680,lng:34.9680},
+  {name:'פיזיו פרדס חנה',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:30',lat:32.4710,lng:34.9695},
+  {name:'יובלים פרדס חנה כרכור',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:30',lat:32.4690,lng:34.9710},
+  {name:'פרדס חנה יועצת',addr:'פרדס חנה-כרכור',hours:'א-ה 08:00-17:00',lat:32.4730,lng:34.9670},
+  {name:'כפר סבא הירוקה',addr:'כפר-סבא',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.1780,lng:34.9060},
+  {name:'הגליל כפר סבא',addr:'כפר-סבא',hours:'א-ה 08:00-19:00, ו 08:00-13:00',lat:32.1760,lng:34.9080},
+  {name:'הדרים כפר סבא',addr:'כפר-סבא',hours:'א-ה 08:00-18:00',lat:32.1800,lng:34.9040},
+  {name:'בן גוריון כפר סבא',addr:'כפר-סבא',hours:'א-ה 08:00-19:00',lat:32.1820,lng:34.9020},
+  {name:'למפרט כפר סבא',addr:'כפר-סבא',hours:'א-ה 08:00-18:00',lat:32.1740,lng:34.9100},
+  {name:'כפר סבא נשים',addr:'כפר-סבא',hours:'א-ה 08:00-18:00',lat:32.1770,lng:34.9070},
+  {name:'שועלי רעננה',addr:'רעננה',hours:'א-ה 08:00-18:30, ו 08:00-13:00',lat:32.1850,lng:34.8710},
+  {name:'הנוטרים רעננה',addr:'רעננה',hours:'א-ה 08:00-18:00',lat:32.1870,lng:34.8730},
+  {name:'נווה זמר רעננה',addr:'רעננה',hours:'א-ה 08:00-18:00',lat:32.1830,lng:34.8690},
+  {name:'התפתחות הילד נווה זמיר רעננה',addr:'רעננה',hours:'א-ה 08:00-17:00',lat:32.1820,lng:34.8700},
+  {name:'מוריה רמת השרון',addr:'רמת השרון',hours:'א-ה 08:00-18:00, ו 08:00-13:00',lat:32.1460,lng:34.8360},
+  {name:'קדמה רמת השרון',addr:'רמת השרון',hours:'א-ה 08:00-18:00',lat:32.1440,lng:34.8380},
+  {name:'אור עקיבא',addr:'אור עקיבא',hours:'א-ה 08:00-17:00',lat:32.5080,lng:34.9220},
+  {name:'זכרון יעקב דרום',addr:'זכרון יעקב',hours:'א-ה 08:00-17:00',lat:32.5700,lng:34.9550},
+  {name:'זכרון הפסגה',addr:'זכרון יעקב',hours:'א-ה 08:00-17:00',lat:32.5720,lng:34.9540},
+  {name:'בנימינה',addr:'בנימינה',hours:'א-ה 08:00-17:30',lat:32.5140,lng:34.9490},
+  {name:'גסר א-זרקא',addr:"ג'סר א-זרקא",hours:'א-ה 08:00-17:00',lat:32.5350,lng:34.9070},
+  {name:'גסר א-זקקא',addr:"ג'סר א-זרקא",hours:'א-ה 08:00-17:00',lat:32.5360,lng:34.9060},
+  {name:'אום אל פחם',addr:'אום אל-פחם',hours:'א-ה 08:00-17:00',lat:32.5240,lng:35.1530},
+  {name:'אלדהר אום אלפחם',addr:'אום אל-פחם',hours:'א-ה 08:00-17:00',lat:32.5220,lng:35.1540},
+  {name:'כפר קרע',addr:'כפר קרע',hours:'א-ה 08:00-17:00',lat:32.5080,lng:35.0420},
+  {name:'כפר קרע ילדים',addr:'כפר קרע',hours:'א-ה 08:00-17:00',lat:32.5090,lng:35.0430},
+  {name:'כפר קרע מקצועית',addr:'כפר קרע',hours:'א-ה 08:00-17:00',lat:32.5070,lng:35.0410},
+  {name:'ערערה',addr:'ערערה',hours:'א-ה 08:00-17:00',lat:32.5000,lng:35.0290},
+  {name:'ערערה בית מרקחת',addr:'ערערה',hours:'א-ה 08:00-17:00',lat:32.5010,lng:35.0280},
+  {name:'בקה אלגרביה',addr:'באקה אל-גרביה',hours:'א-ה 08:00-17:00',lat:32.4200,lng:35.0370},
+  {name:'טייבה צפון',addr:'טייבה',hours:'א-ה 08:00-17:00',lat:32.3310,lng:35.0010},
+  {name:'טייבה מרכז',addr:'טייבה',hours:'א-ה 08:00-17:00',lat:32.3290,lng:34.9990},
+  {name:'טייבה ילדים',addr:'טייבה',hours:'א-ה 08:00-17:00',lat:32.3270,lng:35.0020},
+  {name:'טירה מרכז',addr:'טירה',hours:'א-ה 08:00-17:00',lat:32.2330,lng:34.9510},
+  {name:'טירה חדשה',addr:'טירה',hours:'א-ה 08:00-17:00',lat:32.2350,lng:34.9490},
+  {name:'טירה צפון',addr:'טירה',hours:'א-ה 08:00-17:00',lat:32.2370,lng:34.9520},
+  {name:'קלנסוואה',addr:'קלנסוואה',hours:'א-ה 08:00-17:00',lat:32.2870,lng:34.9780},
+  {name:'קלנסוואה חדשה',addr:'קלנסוואה',hours:'א-ה 08:00-17:00',lat:32.2880,lng:34.9760},
+  {name:'קלנסוואה צפון',addr:'קלנסוואה',hours:'א-ה 08:00-17:00',lat:32.2890,lng:34.9770},
+  {name:'צור יצחק',addr:'צור יצחק',hours:'א-ה 08:00-17:30',lat:32.2140,lng:34.9480},
+  {name:'צור יגאל',addr:'צור יגאל',hours:'א-ה 08:00-17:30',lat:32.2060,lng:34.9560},
+  {name:'אולגה',addr:'עתלית',hours:'א-ה 08:00-17:00',lat:32.6930,lng:34.9470},
+  {name:'גבעת אולגה חדרה',addr:'גבעת עולגה, חדרה',hours:'א-ה 08:00-17:30',lat:32.4600,lng:34.8980},
+  {name:'חופים גבעת אולגה',addr:'גבעת עולגה',hours:'א-ה 08:00-17:00',lat:32.4580,lng:34.9000},
+  {name:'קפלן',addr:'כפר סבא',hours:'א-ה 08:00-18:00',lat:32.1750,lng:34.9090},
+  {name:'הגליל',addr:'כפר סבא',hours:'א-ה 08:00-18:00',lat:32.1770,lng:34.9070},
+  {name:'קדימה',addr:'קדימה-צורן',hours:'א-ה 08:00-17:30',lat:32.2750,lng:34.9200},
+  {name:'נווה מרחב',addr:'פרדס חנה',hours:'א-ה 08:00-17:30',lat:32.4690,lng:34.9685},
+  {name:'אור ים',addr:'נתניה',hours:'א-ה 08:00-17:00',lat:32.3420,lng:34.8560},
+  {name:'דרך ארץ חריש',addr:'חריש',hours:'א-ה 08:00-17:00',lat:32.4580,lng:35.0290},
+  {name:'פיזיו חריש',addr:'חריש',hours:'א-ה 08:00-17:00',lat:32.4590,lng:35.0280},
+  {name:'חריש התפתחות הילד',addr:'חריש',hours:'א-ה 08:00-17:00',lat:32.4570,lng:35.0300},
+  {name:'לב חריש',addr:'חריש',hours:'א-ה 08:00-17:00',lat:32.4560,lng:35.0310},
+  {name:'איתנים',addr:'',hours:'א-ה 08:00-17:00',lat:32.3000,lng:35.0000},
+  {name:'קדמה',addr:'',hours:'א-ה 08:00-17:00',lat:32.3100,lng:34.8900},
+  {name:'בית אליעזר חדרה',addr:'חדרה',hours:'א-ה 08:00-17:00',lat:32.4310,lng:34.9230},
+  {name:'גבעת חיים לב הפרדס',addr:'גבעת חיים',hours:'א-ה 08:00-17:00',lat:32.4850,lng:34.9620},
+  {name:'שדות להבות חביבה',addr:'',hours:'א-ה 08:00-17:00',lat:32.4900,lng:35.0100},
+  {name:'מנהלת שרון רעננה',addr:'רעננה',hours:'א-ה 08:00-18:00',lat:32.1860,lng:34.8720},
+  {name:'מוריה',addr:'רמת השרון',hours:'א-ה 08:00-18:00',lat:32.1450,lng:34.8370},
+  {name:'כפר נטר',addr:'כפר נטר',hours:'א-ה 08:00-17:00',lat:32.2900,lng:34.9050},
+  {name:'אלצהר',addr:'',hours:'א-ה 08:00-17:00',lat:32.4500,lng:35.0500},
+  {name:'מכבי כפר סבא',addr:'כפר-סבא',hours:'א-ה 08:00-18:00',lat:32.1790,lng:34.9050},
+  {name:'נצר סירני',addr:'נס ציונה',hours:'א-ה 08:00-17:30',lat:31.9280,lng:34.7990},
+  {name:'גרם טייבר',addr:'טייבה',hours:'א-ה 08:00-17:00',lat:32.3280,lng:35.0000},
+  {name:'אום קוטוף',addr:'',hours:'א-ה 08:00-17:00',lat:32.4000,lng:35.0200},
+  {name:'שיר וזמר רעננה',addr:'רעננה',hours:'א-ה 08:00-18:00',lat:32.1880,lng:34.8740},
+  {name:'כללית הירוקה',addr:'',hours:'א-ה 08:00-18:00',lat:32.2000,lng:34.9000},
+  {name:'גוור עקיבא מרכז',addr:'אור עקיבא',hours:'א-ה 08:00-17:00',lat:32.5060,lng:34.9210},
+  {name:'מרפאת אדהאר',addr:'',hours:'א-ה 08:00-17:00',lat:32.4800,lng:35.1000},
+  {name:'שיר וזמר',addr:'רעננה',hours:'א-ה 08:00-18:00',lat:32.1875,lng:34.8735},
+  {name:'פיזיותרפיה רזיאל נתניה',addr:'נתניה',hours:'א-ה 08:00-18:00',lat:32.3270,lng:34.8575}
+];
+
+var allClinicsFiltered = ALL_CLINICS.slice();
+var curMonth = null;
+var tasks = [];
+var pendingAI = null;
+var UO = {urgent:0,high:1,normal:2,low:3};
+var UL = {urgent:'דחוף',high:'גבוה',normal:'רגיל',low:'נמוך'};
+var UC = {urgent:'urgent',high:'high',normal:'normal',low:'low'};
+
+function showTab(t) {
+  var tabs = document.querySelectorAll('.tab');
+  for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+  var navs = document.querySelectorAll('.ni');
+  for (var i = 0; i < navs.length; i++) navs[i].classList.remove('active');
+  document.getElementById('tab-' + t).classList.add('active');
+  document.getElementById('nav-' + t).classList.add('active');
+  var T = {revenues:'הכנסות', expenses:'ניתוח הוצאות', workplan:'תוכנית עבודה', clinics:'מרפאות'};
+  document.getElementById('pageTitle').textContent = T[t];
+  if (t === 'clinics') loadMapIframe();
+}
+
+function initApp() {
+  var now = new Date();
+  document.getElementById('pageDate').textContent = now.toLocaleDateString('he-IL', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  document.getElementById('md').value = now.toISOString().split('T')[0];
+  initCharts();
+  initMonthSel();
+  initExpTable();
+  loadClinics();
+}
+
+function shekel(n) {
+  return '\u20AA' + n.toLocaleString();
+}
+
+function initCharts() {
+  var cols = [];
+  for (var i = 0; i < TOTALS.length; i++) {
+    if (TOTALS[i] < 80000) cols.push('rgba(185,28,28,0.85)');
+    else if (TOTALS[i] > 130000) cols.push('rgba(27,122,62,0.85)');
+    else cols.push('rgba(15,76,129,0.8)');
+  }
+  new Chart(document.getElementById('revChart'), {
+    type: 'bar',
+    data: {labels: MONTHS, datasets: [{label: 'הכנסות', data: TOTALS, backgroundColor: cols, borderRadius: 5, borderSkipped: false}]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {legend: {display: false}, tooltip: {callbacks: {label: function(c) { return shekel(c.parsed.y); }}}},
+      scales: {
+        x: {grid: {display: false}, ticks: {font: {family: 'Heebo', size: 10}}},
+        y: {ticks: {font: {family: 'Heebo', size: 10}, callback: function(v) { return (v/1000).toFixed(0) + 'K'; }}}
+      }
+    }
+  });
+  var fixedArr = [];
+  for (var i = 0; i < TOTALS.length; i++) fixedArr.push(8120);
+  new Chart(document.getElementById('expChart'), {
+    type: 'line',
+    data: {labels: MONTHS, datasets: [
+      {label: 'הכנסות', data: TOTALS, borderColor: '#1B7A3E', backgroundColor: 'rgba(27,122,62,0.07)', tension: 0.3, pointRadius: 4, fill: true},
+      {label: 'הוצאות קבועות', data: fixedArr, borderColor: '#B91C1C', backgroundColor: 'rgba(185,28,28,0.04)', tension: 0, pointRadius: 3, borderDash: [5,3], fill: true}
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {legend: {position: 'top', labels: {font: {family: 'Heebo', size: 10}, boxWidth: 10}}, tooltip: {callbacks: {label: function(c) { return c.dataset.label + ': ' + shekel(c.parsed.y); }}}},
+      scales: {
+        x: {grid: {display: false}, ticks: {font: {family: 'Heebo', size: 10}}},
+        y: {ticks: {font: {family: 'Heebo', size: 10}, callback: function(v) { return (v/1000).toFixed(0) + 'K'; }}}
+      }
+    }
+  });
+}
+
+function initMonthSel() {
+  var sel = document.getElementById('monthSel');
+  for (var i = 0; i < MONTHS.length; i++) {
+    (function(m, tot) {
+      var el = document.createElement('div');
+      el.className = 'mtag';
+      el.textContent = m + ' (' + (tot/1000).toFixed(0) + 'K)';
+      el.setAttribute('data-m', m);
+      el.onclick = function() { selectMonth(m); };
+      sel.appendChild(el);
+    })(MONTHS[i], TOTALS[i]);
+  }
+}
+
+function selectMonth(m) {
+  var tags = document.querySelectorAll('.mtag');
+  for (var i = 0; i < tags.length; i++) {
+    tags[i].classList.remove('active');
+    if (tags[i].getAttribute('data-m') === m) tags[i].classList.add('active');
+  }
+  curMonth = m;
+  var data = MD[m];
+  var active = [];
+  for (var i = 0; i < data.inv.length; i++) { if (data.inv[i].a > 0) active.push(data.inv[i]); }
+
+  /* update subtitle */
+  document.getElementById('monthSub').textContent = m + ' - ' + active.length + ' חשבוניות';
+
+  /* show total banner */
+  var bar = document.getElementById('monthTotalBar');
+  bar.classList.add('show');
+  document.getElementById('mtbLabel').textContent = 'סה"כ הכנסות ' + m;
+  document.getElementById('mtbAmount').textContent = shekel(data.total);
+  document.getElementById('mtbCount').textContent = active.length + ' חשבוניות';
+
+  var html = '';
+  for (var i = 0; i < active.length; i++) {
+    var r = active[i];
+    html += '<tr><td>' + r.d + '</td><td><strong>' + (r.c||'—') + '</strong></td>' +
+      '<td style="font-size:11px">' + (r.p||'—') + '</td>' +
+      '<td style="color:#6B7280">' + (r.n||'—') + '</td>' +
+      '<td style="font-size:11px;max-width:200px">' + (r.w||'—') + '</td>' +
+      '<td style="font-weight:700;color:#1B7A3E">' + shekel(r.a) + '</td></tr>';
+  }
+  document.getElementById('invTable').innerHTML = html;
+}
+
+function exportCSV() {
+  if (!curMonth) { alert('בחר חודש תחילה'); return; }
+  var data = MD[curMonth];
+  var rows = ['תאריך,מרפאה,מבצע,חשבונית,עבודה,סכום'];
+  for (var i = 0; i < data.inv.length; i++) {
+    var r = data.inv[i];
+    if (r.a > 0) rows.push([r.d, r.c, r.p, r.n, '"' + r.w + '"', r.a].join(','));
+  }
+  var csv = '\uFEFF' + rows.join('\n');
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv;charset=utf-8;'}));
+  a.download = 'הכנסות_' + curMonth + '.csv';
+  a.click();
+}
+
+function initExpTable() {
+  var html = '';
+  for (var i = 0; i < MONTHS.length; i++) {
+    var m = MONTHS[i];
+    var t = MD[m].total;
+    var fixed = 8120;
+    var pct = (fixed / t * 100).toFixed(1);
+    var bal = t - fixed;
+    var color = t < 80000 ? '#B91C1C' : '#1B7A3E';
+    html += '<tr><td>' + m + '</td>' +
+      '<td style="font-weight:700;color:' + color + '">' + shekel(t) + '</td>' +
+      '<td>' + shekel(5040) + '</td><td>' + shekel(2220) + '</td><td>' + shekel(860) + '</td><td>' + shekel(8120) + '</td>' +
+      '<td><span class="badge ' + (pct > 10 ? 'bo' : 'bg') + '">' + pct + '%</span></td>' +
+      '<td style="font-weight:700">' + shekel(bal) + '</td></tr>';
+  }
+  html += '<tr style="background:#F9FAFB;font-weight:700"><td>ממוצע</td><td style="color:#1B7A3E">' + shekel(104520) + '</td><td>' + shekel(5040) + '</td><td>' + shekel(2220) + '</td><td>' + shekel(860) + '</td><td>' + shekel(8120) + '</td><td><span class="badge bg">7.8%</span></td><td>' + shekel(96400) + '</td></tr>';
+  document.getElementById('expTable').innerHTML = html;
+}
+
+/* ===== CLINICS ===== */
+function loadClinics() {
+  document.getElementById('clinicCountLabel').textContent = ALL_CLINICS.length + ' מרפאות';
+  renderClinicList(ALL_CLINICS);
+}
+
+function filterClinics() {
+  var q = document.getElementById('clinicSearch').value.trim();
+  if (!q) {
+    allClinicsFiltered = ALL_CLINICS.slice();
+  } else {
+    allClinicsFiltered = [];
+    for (var i = 0; i < ALL_CLINICS.length; i++) {
+      if (ALL_CLINICS[i].name.indexOf(q) >= 0 || ALL_CLINICS[i].addr.indexOf(q) >= 0) {
+        allClinicsFiltered.push(ALL_CLINICS[i]);
+      }
+    }
+  }
+  document.getElementById('clinicCountLabel').textContent = allClinicsFiltered.length + ' מרפאות';
+  renderClinicList(allClinicsFiltered);
+}
+
+function renderClinicList(list) {
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    var idx = i;
+    html += '<div class="ci" onclick="focusClinic(' + idx + ')">' +
+      '<div class="cico"><i class="fas fa-hospital-symbol"></i></div>' +
+      '<div><div class="cn">' + c.name + '</div>' +
+      '<div class="ca"><i class="fas fa-map-marker-alt" style="margin-left:3px;font-size:10px"></i>' + c.addr + '</div>' +
+      '<div class="ch"><i class="fas fa-clock" style="margin-left:3px;font-size:10px"></i>' + c.hours + '</div></div></div>';
+  }
+  document.getElementById('clinicList').innerHTML = html || '<div class="es"><i class="fas fa-search"></i><p>לא נמצאו מרפאות</p></div>';
+}
+
+var mapLoaded = false;
+function loadMapIframe() {
+  if (mapLoaded) return;
+  mapLoaded = true;
+  /* Build a Google Maps search URL centered on Sharon-Shomron region */
+  var src = 'https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d120000!2d35.0!3d32.35!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMzLCsDIxJzAwLjAiTiAzNcKwMDAnMDAuMCJF!5e0!3m2!1siw!2sil!4v1700000000000&q=כללית+שרון+שומרון';
+  document.getElementById('clinicMapFrame').src = src;
+}
+
+function focusClinic(idx) {
+  var c = allClinicsFiltered[idx];
+  if (!c) return;
+  var q = encodeURIComponent(c.name + ' ' + c.addr + ' ישראל');
+  var src = 'https://www.google.com/maps/embed/v1/search?key=AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY&q=' + q + '&language=he';
+  /* fallback without API key */
+  var fallback = 'https://maps.google.com/maps?q=' + q + '&output=embed&hl=he';
+  document.getElementById('clinicMapFrame').src = fallback;
+  mapLoaded = true;
+}
+
+/* ===== PHOTO AI ===== */
+function handlePhoto(input) {
+  var f = input.files[0]; if (!f) return;
+  var r = new FileReader();
+  r.onload = function(e) {
+    document.getElementById('pimg').src = e.target.result;
+    document.getElementById('pp').style.display = 'block';
+    analyzePhoto(e.target.result, f.type || 'image/jpeg');
+  };
+  r.readAsDataURL(f);
+}
+
+async function analyzePhoto(b64, mime) {
+  document.getElementById('aiLoad').classList.add('show');
+  document.getElementById('aiRes').classList.remove('show');
+  try {
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 1000,
+        messages: [{role: 'user', content: [
+          {type: 'image', source: {type: 'base64', media_type: mime, data: b64.split(',')[1]}},
+          {type: 'text', text: 'זוהי הזמנת עבודה. חלץ JSON בלבד: {"c":"מרפאה","p":"מבצע","w":"עבודה","a":"סכום","d":"YYYY-MM-DD","n":"חשבונית"}'}
+        ]}]
+      })
+    });
+    var d = await resp.json();
+    var parsed = JSON.parse(d.content[0].text.trim().replace(/```json|```/g,''));
+    pendingAI = parsed;
+    var fields = [{l:'מרפאה',v:parsed.c},{l:'מבצע',v:parsed.p},{l:'עבודה',v:parsed.w},{l:'סכום',v:parsed.a?shekel(parsed.a):'—'},{l:'תאריך',v:parsed.d},{l:'חשבונית',v:parsed.n}];
+    var html = '';
+    for (var i = 0; i < fields.length; i++) {
+      html += '<div class="af"><span class="afl">'+fields[i].l+'</span><span class="afv">'+(fields[i].v||'—')+'</span></div>';
+    }
+    document.getElementById('aiExt').innerHTML = html;
+    document.getElementById('aiRes').classList.add('show');
+  } catch(e) { alert('שגיאה. נסה הזנה ידנית.'); }
+  document.getElementById('aiLoad').classList.remove('show');
+}
+
+function saveInvoiceToFb(inv) {
+  if (!window._db) { alert('Firebase לא מחובר עדיין, נסה שנית'); return; }
+  var f = window._fbFns;
+  inv.ts = f.serverTimestamp();
+  inv.addedBy = currentUser ? currentUser.display : 'לא ידוע';
+  f.addDoc(f.collection(window._db, 'invoices'), inv).then(function() {
+    showToast('החשבונית נשמרה ב-Firebase');
+  }).catch(function(e) { alert('שגיאת Firebase: ' + e.message); });
+}
+
+function confirmAI() {
+  document.getElementById('aiRes').classList.remove('show');
+  document.getElementById('pp').style.display = 'none';
+  if (pendingAI) {
+    saveInvoiceToFb({
+      clinic: pendingAI.c || '', performer: pendingAI.p || '',
+      work: pendingAI.w || '', amount: parseFloat(pendingAI.a) || 0,
+      date: pendingAI.d || '', inv: pendingAI.n || '', source: 'AI'
+    });
+    pendingAI = null;
+  }
+}
+function cancelAI() {
+  document.getElementById('aiRes').classList.remove('show');
+  document.getElementById('pp').style.display = 'none';
+  pendingAI = null;
+}
+function addManual() {
+  var c = document.getElementById('mc').value.trim();
+  if (!c) { alert('נא להזין מרפאה'); return; }
+  saveInvoiceToFb({
+    clinic: c,
+    performer: document.getElementById('mb').value.trim(),
+    work: document.getElementById('mw').value.trim(),
+    amount: parseFloat(document.getElementById('ma').value) || 0,
+    date: document.getElementById('md').value,
+    inv: document.getElementById('mi').value.trim(),
+    source: 'ידני'
+  });
+  var ids = ['mc','mb','mw','ma','mi'];
+  for (var i = 0; i < ids.length; i++) document.getElementById(ids[i]).value = '';
+}
+
+/* show Firebase invoices below the monthly table */
+window.refreshFbInvoices = function() {
+  var el = document.getElementById('fbInvoiceRows');
+  if (!el || !window._fbInvoices || !window._fbInvoices.length) return;
+  var html = '';
+  for (var i = 0; i < window._fbInvoices.length; i++) {
+    var r = window._fbInvoices[i];
+    html += '<tr style="background:#FFFBEB">' +
+      '<td>' + (r.date||'—') + '</td>' +
+      '<td><strong>' + (r.clinic||'—') + '</strong></td>' +
+      '<td style="font-size:11px">' + (r.performer||'—') + '</td>' +
+      '<td style="color:#6B7280">' + (r.inv||'—') + '</td>' +
+      '<td style="font-size:11px">' + (r.work||'—') + '</td>' +
+      '<td style="font-weight:700;color:#1B7A3E">' + shekel(r.amount||0) + '</td>' +
+      '<td><button onclick="deleteFbInvoice(\'' + r.fbId + '\')" style="background:none;border:none;color:#B91C1C;cursor:pointer;font-size:12px"><i class="fas fa-trash"></i></button></td>' +
+    '</tr>';
+  }
+  el.innerHTML = html;
+};
+
+function deleteFbInvoice(fbId) {
+  if (!confirm('למחוק חשבונית זו?')) return;
+  var f = window._fbFns;
+  f.deleteDoc(f.doc(window._db, 'invoices', fbId)).then(function() {
+    showToast('החשבונית נמחקה');
+  });
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+/* ===== TASKS — Firebase ===== */
+function addTask() {
+  var d = document.getElementById('td').value.trim();
+  var l = document.getElementById('tl').value.trim();
+  var u = document.getElementById('tu').value;
+  if (!d) { alert('נא להזין תיאור'); return; }
+  if (!window._db) { alert('Firebase לא מחובר'); return; }
+  var f = window._fbFns;
+  f.addDoc(f.collection(window._db, 'tasks'), {
+    d: d, l: l, u: u, tip: '',
+    ts: f.serverTimestamp(),
+    addedBy: currentUser ? currentUser.display : 'לא ידוע'
+  }).then(function() {
+    document.getElementById('td').value = '';
+    document.getElementById('tl').value = '';
+    showToast('הקריאה נשמרה');
+  }).catch(function(e) { alert('שגיאה: ' + e.message); });
+}
+
+window.renderTasks = function() {
+  var fbTasks = window._fbTasks || [];
+  document.getElementById('taskCount').textContent = fbTasks.length + ' קריאות';
+  var list = document.getElementById('taskList');
+  if (!fbTasks.length) {
+    list.innerHTML = '<div class="es"><i class="fas fa-clipboard-list"></i><p>הוסף קריאה ראשונה</p></div>';
+    return;
+  }
+  var sorted = fbTasks.slice().sort(function(a, b) { return UO[a.u] - UO[b.u]; });
+  var html = '';
+  for (var i = 0; i < sorted.length; i++) {
+    var t = sorted[i];
+    html += '<div class="tk ' + UC[t.u] + '">' +
+      '<div class="tn">' + (i+1) + '</div>' +
+      '<div class="tinfo"><div class="ttk">' + t.d + '</div>' +
+      '<div class="tm">' + (t.l ? t.l + ' — ' : '') + UL[t.u] +
+      (t.addedBy ? ' &middot; ' + t.addedBy : '') + '</div>' +
+      (t.tip ? '<div class="tip"><i class="fas fa-robot" style="margin-left:4px"></i>' + t.tip + '</div>' : '') +
+      '</div>' +
+      '<button class="btn btn-o btn-sm" onclick="delTask(\'' + t.fbId + '\')" style="padding:4px 9px;align-self:flex-start"><i class="fas fa-check"></i></button>' +
+      '</div>';
+  }
+  list.innerHTML = html;
+};
+
+function delTask(fbId) {
+  var f = window._fbFns;
+  f.deleteDoc(f.doc(window._db, 'tasks', fbId)).then(function() {
+    showToast('הקריאה הושלמה ונמחקה');
+  });
+}
+
+async function aiOrganize() {
+  var fbTasks = window._fbTasks || [];
+  if (!fbTasks.length) { alert('הוסף קריאות תחילה'); return; }
+  document.getElementById('taskLoad').classList.add('show');
+  try {
+    var list = '';
+    for (var i = 0; i < fbTasks.length; i++) {
+      list += (i+1) + '. ' + fbTasks[i].d + ' (' + (fbTasks[i].l || 'ללא מיקום') + ', ' + UL[fbTasks[i].u] + ')\n';
+    }
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514', max_tokens: 800,
+        messages: [{role: 'user', content: 'אתה יועץ עסקי לעסק אחזקה - מרפאות כללית שרון-שומרון. קריאות:\n' + list + '\nJSON בלבד: [{"id_index":0,"tip":"המלצה קצרה"}]'}]
+      })
+    });
+    var d = await resp.json();
+    var tips = JSON.parse(d.content[0].text.trim().replace(/```json|```/g,''));
+    var f = window._fbFns;
+    for (var i = 0; i < tips.length; i++) {
+      var task = fbTasks[tips[i].id_index];
+      if (task && task.fbId) {
+        /* update tip in Firestore */
+        var ref = f.doc(window._db, 'tasks', task.fbId);
+        var upd = {};
+        upd.tip = tips[i].tip;
+        getFirestoreUpdateFn()(ref, upd);
+      }
+    }
+    showToast('הקריאות סודרו לפי AI');
+  } catch(e) { alert('שגיאה. נסה שנית.'); }
+  document.getElementById('taskLoad').classList.remove('show');
+}
+
+function getFirestoreUpdateFn() {
+  /* lazy-load updateDoc from the module scope via a global we'll set */
+  return window._fbUpdate || function(){};
+}
+</script>
+<!-- Toast notification -->
+<div id="toast" style="position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:#1B7A3E;color:white;padding:12px 24px;border-radius:30px;font-size:14px;font-weight:600;font-family:'Heebo',sans-serif;opacity:0;transition:all .3s;pointer-events:none;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.25)"></div>
+<style>
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</body>
+</html>
